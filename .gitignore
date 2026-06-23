@@ -1,0 +1,39 @@
+# 環境変数・認証情報
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+secrets.json
+
+# 収集データ（大容量ファイル）
+data/
+*.csv
+*.json
+*.parquet
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# エディタ
+.vscode/settings.json
+.idea/
+*.swp
