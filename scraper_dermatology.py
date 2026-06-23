@@ -228,11 +228,10 @@ def clean_address(raw: str) -> str:
         return ""
     raw = str(raw).strip()
 
-    # 1. 〒XXX-XXXX パターンを含む → 有効
+    # 1. 〒XXX-XXXX パターンを含む → 有効（郵便番号は除去して住所部分のみ返す）
     postal = re.search(r'〒\s*\d{3}[-－ー]\d{4}(?:[^\n\r]{0,50})?', raw)
     if postal:
-        addr = postal.group(0).strip()
-        # パイプや括弧など不審な文字で切り詰め
+        addr = re.sub(r'^〒\s*\d{3}[-－ー]\d{4}\s*', '', postal.group(0)).strip()
         for bad in ['|', '｜', '【', '】', '\n']:
             if bad in addr:
                 addr = addr[:addr.index(bad)].strip()
@@ -271,7 +270,8 @@ def extract_phone(text: str) -> str:
 def extract_address(text: str) -> str:
     found = re.findall(r"〒\s*\d{3}[-－]\d{4}[^\n\r]{0,60}", text)
     if found:
-        return found[0].strip()
+        addr = re.sub(r'^〒\s*\d{3}[-－]\d{4}\s*', '', found[0]).strip()
+        return addr
     found = re.findall(r"埼玉県[^\n\r]{5,60}", text)
     return found[0].strip() if found else ""
 
