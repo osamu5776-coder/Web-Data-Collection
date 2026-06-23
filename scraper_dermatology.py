@@ -111,6 +111,145 @@ def random_wait() -> None:
     time.sleep(delay)
 
 
+# ── クリーニング ──────────────────────────────────────────
+
+CLINIC_KEYWORDS = ["皮膚科", "皮フ科", "クリニック", "医院", "病院", "診療所"]
+_STRONG_KW = ["クリニック", "医院", "病院", "診療所"]
+_WEAK_KW   = ["皮膚科", "皮フ科"]
+
+def _has_clinic_kw(s: str) -> bool:
+    return any(kw in s for kw in CLINIC_KEYWORDS)
+
+def _clinic_score(s: str) -> int:
+    """セグメントがクリニック名らしいほど高スコアを返す。"""
+    if len(s) <= 3:          # 「皮膚科」単独などは除外
+        return 0
+    score = sum(2 for kw in _STRONG_KW if kw in s)
+    score += sum(1 for kw in _WEAK_KW  if kw in s)
+    # 地名の羅列っぽい（スペース区切りの複数診療科リスト）は減点
+    if s.count('・') >= 2 or s.count(' ') >= 2:
+        score -= 1
+    return score
+
+
+def clean_name(raw: str) -> str:
+    """ページタイトルからクリニック名だけを抽出する。"""
+    if not raw or not raw.strip():
+        return raw
+    name = raw.strip()
+
+    # 1. 【クリニック名】: 括弧内に強いキーワードがあり地名説明でなければ最優先
+    for m in re.finditer(r'【([^】]{2,20})】', name):
+        content = m.group(1)
+        if (any(kw in content for kw in _STRONG_KW)
+                and not re.search(r'[都道府県市区町村]', content)):
+            return content.strip()
+
+    # 2. 定型プレフィックス除去
+    name = re.sub(r'^(?:トップページ|HOME|TOP)\s*[-－|｜]\s*', '', name).strip()
+
+    # 3. 区切り文字で分割 → スコア最高のセグメントを選択
+    segments = [name]
+    for sep in ['｜', ' | ', '|', ' - ']:
+        if sep in name:
+            segments = [s.strip() for s in name.split(sep) if s.strip()]
+            break
+    if len(segments) > 1:
+        scored = [(s, _clinic_score(s)) for s in segments]
+        best = max(sc for _, sc in scored)
+        if best > 0:
+            name = min((s for s, sc in scored if sc == best), key=len)
+        else:
+            name = segments[0]
+
+    # 4. 装飾ブラケットをスペースで置換（除去すると前後が結合するため）
+    name = re.sub(r'【[^】]{0,15}】', ' ', name)
+    name = re.sub(r'[ \t]+', ' ', name).strip()  # 半角スペースのみ正規化（全角スペースは保持）
+
+    # 5. 地名プレフィックス除去 (複数パターンを順に適用)
+    # a. "XX市 XX皮膚科" → 空白区切りの地名プレフィックス
+    m = re.match(r'^.{1,12}(?:市|区|町|村|駅)[^\s　]*[ \t]+(.+)', name)
+    if m and _has_clinic_kw(m.group(1)):
+        name = m.group(1)
+    # b. "埼玉県XX市のXXクリニック" → 「市の」＋強いキーワード
+    m = re.match(r'^.{1,15}(?:市|区|町|村)の(.+?(?:クリニック|医院|病院|診療所))', name)
+    if m:
+        name = m.group(1)
+    # c. "浦和の皮膚科いとう医院" → の＋弱キーワード＋強キーワード
+    m = re.match(r'^.{1,8}の(?:皮膚科|皮フ科)(.{2,15}(?:医院|クリニック|病院|センター))', name)
+    if m:
+        name = m.group(1)
+
+    # 6. 括弧内の補足説明除去: （毎週水曜日・祝日 予約制）等
+    name = re.sub(r'[（(][^）)]{3,30}[）)]', '', name).strip()
+
+    # 7. 空白区切りのトークンを順に評価して余分な説明を除去
+    #    - クリニックキーワードを持つトークンの後に、キーワードも院名もない → 切り捨て
+    #    - 「浦和院」など院名サフィックスは保持
+    #    - 「国立病院機構 埼玉病院」のように後続トークンもキーワード持ちなら保持
+    tokens = re.split(r'([ 　]+)', name)          # セパレータを保持して分割
+    words   = tokens[0::2]                         # 奇数: テキスト
+    seps    = tokens[1::2] + ['']                  # 偶数: セパレータ
+    result_words, result_seps = [words[0]], []
+    for word, sep in zip(words[1:], seps):
+        cumulative = ''.join(result_words)
+        is_branch  = bool(re.search(r'^\S{1,4}院$', word))
+        has_kw     = _has_clinic_kw(word)
+        if _has_clinic_kw(cumulative) and not has_kw and not is_branch:
+            break                                  # 説明トークン → 切り捨て
+        result_words.append(word)
+        result_seps.append(sep)
+    # 結合（セパレータを元通りに復元）
+    out = result_words[0]
+    for w, s in zip(result_words[1:], result_seps):
+        out += s + w
+    name = out.strip()
+
+    # 7.5. 「病院名 皮膚科・美容皮膚科・...」→ 最初の診療科だけ残す
+    m = re.match(r'^(.+?(?:病院|クリニック|医院|診療所))([ 　]+)((?:皮膚科|皮フ科))(・.+)$', name)
+    if m:
+        name = (m.group(1) + m.group(2) + m.group(3)).strip()
+
+    # 8. 法人名プレフィックス除去
+    name = re.sub(r'^独立行政法人\s+', '', name).strip()
+    name = re.sub(r'^(?:医療法人(?:社団)?|社会福祉法人|学校法人)\s*\S+\s+', '', name).strip()
+
+    return name.strip()
+
+
+def clean_address(raw: str) -> str:
+    """住所として有効な文字列のみ返す。無効なら空文字を返す。"""
+    if not raw or str(raw).strip() in ("", "nan"):
+        return ""
+    raw = str(raw).strip()
+
+    # 1. 〒XXX-XXXX パターンを含む → 有効
+    postal = re.search(r'〒\s*\d{3}[-－ー]\d{4}(?:[^\n\r]{0,50})?', raw)
+    if postal:
+        addr = postal.group(0).strip()
+        # パイプや括弧など不審な文字で切り詰め
+        for bad in ['|', '｜', '【', '】', '\n']:
+            if bad in addr:
+                addr = addr[:addr.index(bad)].strip()
+        return addr[:60]
+
+    # 2. 都道府県＋市区町村＋番地のパターン（郵便番号なし）
+    m = re.search(
+        r'(?:埼玉県|東京都|神奈川県|\S{2,3}[都道府県])\S{1,10}[市区町村]\S{2,30}',
+        raw,
+    )
+    if m:
+        addr = m.group(0).strip()
+        # 不審な文字・長すぎる・リスト的内容は無効
+        if any(c in addr for c in ['|', '｜', '【', '】', '口コミ', 'TOP', 'おすすめ']):
+            return ""
+        if len(addr) > 60:
+            return ""
+        return addr
+
+    return ""
+
+
 # ── 情報抽出ユーティリティ ─────────────────────────────────
 
 def extract_email(text: str) -> str:
@@ -351,11 +490,16 @@ async def main() -> None:
 
         await browser.close()
 
-    # ③ Excel 出力
+    # ③ クリーニング（名称・住所の整形）
     if not records:
         logger.error("収集データが 0 件のため Excel 出力をスキップします。")
         sys.exit(1)
 
+    for rec in records:
+        rec["名称"] = clean_name(rec["名称"])
+        rec["所在地"] = clean_address(rec["所在地"])
+
+    # ④ Excel 出力
     columns = ["名称", "メールアドレス", "公式サイトURL", "所在地", "電話番号", "インスタURL", "問い合わせフォームURL"]
     df = pd.DataFrame(records, columns=columns)
     df.to_excel(OUTPUT_FILE, index=False)
