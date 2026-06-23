@@ -6,8 +6,9 @@
 credentials.json
 secrets.json
 
-# 収集データ（大容量ファイル）
+# 収集データ・出力ファイル（大容量ファイル）
 data/
+output.xlsx
 *.csv
 *.json
 *.parquet
