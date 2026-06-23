@@ -11,6 +11,7 @@
 import asyncio
 import io
 import logging
+import os
 import random
 import re
 import sys
@@ -46,11 +47,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── 定数 ─────────────────────────────────────────────────
-SEARCH_KEYWORD = "埼玉県 皮膚科 クリニック 公式サイト"
-MAX_SEARCH_RESULTS = 30
+INPUT_FILE = "input.xlsx"           # A列にキーワードを入力
+MAX_RESULTS_PER_KEYWORD = 1         # キーワード1件あたりの収集URL数
+SEARCH_FETCH = 10                   # 検索結果の取得数（フィルタ後にMAX_RESULTS_PER_KEYWORD件使用）
 DELAY_MIN = 1.0
 DELAY_MAX = 3.0
-OUTPUT_FILE = f"saitama_dermatology_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+OUTPUT_FILE = f"output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -113,9 +115,9 @@ def random_wait() -> None:
 
 # ── クリーニング ──────────────────────────────────────────
 
-CLINIC_KEYWORDS = ["皮膚科", "皮フ科", "クリニック", "医院", "病院", "診療所"]
+CLINIC_KEYWORDS = ["皮膚科", "皮フ科", "皮ふ科", "クリニック", "医院", "病院", "診療所"]
 _STRONG_KW = ["クリニック", "医院", "病院", "診療所"]
-_WEAK_KW   = ["皮膚科", "皮フ科"]
+_WEAK_KW   = ["皮膚科", "皮フ科", "皮ふ科"]
 
 def _has_clinic_kw(s: str) -> bool:
     return any(kw in s for kw in CLINIC_KEYWORDS)
@@ -126,9 +128,12 @@ def _clinic_score(s: str) -> int:
         return 0
     score = sum(2 for kw in _STRONG_KW if kw in s)
     score += sum(1 for kw in _WEAK_KW  if kw in s)
-    # 地名の羅列っぽい（スペース区切りの複数診療科リスト）は減点
+    # 診療科リスト・複数地名の羅列は減点
     if s.count('・') >= 2 or s.count(' ') >= 2:
         score -= 1
+    # 固有名詞なしでキーワードから始まる（「皮膚科専門医院」等の汎用表記）は大幅減点
+    if any(s.startswith(kw) for kw in CLINIC_KEYWORDS):
+        score -= 3
     return score
 
 
@@ -432,25 +437,32 @@ async def collect_info(url: str, search_title: str, page) -> dict:
 
 # ── メイン ────────────────────────────────────────────────
 
+_EMPTY_RECORD = {
+    "名称": "", "メールアドレス": "", "公式サイトURL": "",
+    "所在地": "", "電話番号": "", "インスタURL": "", "問い合わせフォームURL": "",
+}
+
+
 async def main() -> None:
     logger.info("=" * 50)
-    logger.info("埼玉県 皮膚科 情報収集 開始")
+    logger.info("Web Data Collection 開始")
     logger.info("=" * 50)
     start_time = datetime.now()
 
-    # ① 検索
-    try:
-        raw_results = search_clinics(SEARCH_KEYWORD, MAX_SEARCH_RESULTS)
-    except Exception:
-        logger.error("検索に失敗しました。終了します。")
+    # ① Excel 読み込み
+    if not os.path.exists(INPUT_FILE):
+        logger.error(f"{INPUT_FILE} が見つかりません。A列にキーワードを入力してください。")
         sys.exit(1)
 
-    clinics = filter_results(raw_results)
-    if not clinics:
-        logger.error("収集対象が 0 件です。終了します。")
+    df_input = pd.read_excel(INPUT_FILE)
+    keywords = df_input.iloc[:, 0].dropna().astype(str).tolist()
+    if not keywords:
+        logger.error("キーワードが 0 件です。終了します。")
         sys.exit(1)
+    logger.info(f"{len(keywords)} 件のキーワードを読み込みました")
 
     records: list[dict] = []
+    connection_error = False
 
     # ② Playwright ブラウザ起動
     async with async_playwright() as pw:
@@ -458,35 +470,51 @@ async def main() -> None:
         context = await browser.new_context(user_agent=USER_AGENT)
         page = await context.new_page()
 
-        for i, clinic in enumerate(clinics, 1):
-            url = clinic.get("href", "").strip()
-            title = clinic.get("title", "")
-            if not url:
+        for ki, keyword in enumerate(keywords, 1):
+            logger.info(f"[{ki}/{len(keywords)}] キーワード: 「{keyword}」")
+
+            # 検索
+            try:
+                raw_results = search_clinics(keyword, SEARCH_FETCH)
+            except Exception:
+                logger.error(f"  検索エラー: {keyword}")
+                records.append({**_EMPTY_RECORD, "名称": keyword})
                 continue
 
-            logger.info(f"[{i}/{len(clinics)}] {title}")
-            logger.info(f"  URL: {url}")
+            clinics = filter_results(raw_results)
+            if not clinics:
+                logger.warning(f"  収集対象 URL なし: {keyword}")
+                records.append({**_EMPTY_RECORD, "名称": keyword})
+                continue
 
-            try:
-                info = await collect_info(url, title, page)
-                records.append(info)
-                logger.info(
-                    f"  結果: 名称={info['名称'][:20]} / "
-                    f"TEL={info['電話番号'] or 'なし'} / "
-                    f"住所={info['所在地'][:15] + '...' if len(info['所在地']) > 15 else info['所在地'] or 'なし'}"
-                )
-            except requests.ConnectionError:
-                # 接続エラーは収集済みデータを保存して終了
-                logger.error("接続エラーが発生しました。収集を中断して結果を保存します。")
+            # 上位 MAX_RESULTS_PER_KEYWORD 件を収集
+            for clinic in clinics[:MAX_RESULTS_PER_KEYWORD]:
+                url = clinic.get("href", "").strip()
+                title = clinic.get("title", "")
+                if not url:
+                    continue
+
+                logger.info(f"  URL: {url}")
+                try:
+                    info = await collect_info(url, title, page)
+                    records.append(info)
+                    logger.info(
+                        f"  結果: 名称={info['名称'][:20]} / "
+                        f"TEL={info['電話番号'] or 'なし'} / "
+                        f"住所={info['所在地'][:15] + '...' if len(info['所在地']) > 15 else info['所在地'] or 'なし'}"
+                    )
+                except requests.ConnectionError:
+                    logger.error("接続エラーが発生しました。収集を中断して結果を保存します。")
+                    connection_error = True
+                    break
+                except Exception as e:
+                    logger.error(f"  予期しないエラー: {e}")
+                    records.append({**_EMPTY_RECORD, "名称": title, "公式サイトURL": url})
+
+                random_wait()
+
+            if connection_error:
                 break
-            except Exception as e:
-                logger.error(f"  予期しないエラー: {e}")
-                records.append({
-                    "名称": title, "メールアドレス": "", "公式サイトURL": url,
-                    "所在地": "", "電話番号": "", "インスタURL": "", "問い合わせフォームURL": "",
-                })
-
-            random_wait()
 
         await browser.close()
 
