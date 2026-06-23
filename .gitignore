@@ -12,7 +12,8 @@ output.xlsx
 output_*.xlsx
 saitama_dermatology_*.xlsx
 saitama_all_*.xlsx
-scraper.log
+*.log
+.playwright-mcp/
 *.csv
 *.json
 *.parquet
