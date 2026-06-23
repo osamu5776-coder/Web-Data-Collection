@@ -9,6 +9,8 @@ secrets.json
 # 収集データ・出力ファイル（大容量ファイル）
 data/
 output.xlsx
+saitama_dermatology_*.xlsx
+scraper.log
 *.csv
 *.json
 *.parquet
