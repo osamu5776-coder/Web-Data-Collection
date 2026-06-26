@@ -12,6 +12,7 @@ output.xlsx
 output_*.xlsx
 saitama_dermatology_*.xlsx
 saitama_all_*.xlsx
+aomori_a_type_*.xlsx
 *.log
 .playwright-mcp/
 *.csv
