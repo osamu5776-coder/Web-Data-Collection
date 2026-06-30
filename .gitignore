@@ -15,6 +15,7 @@ saitama_all_*.xlsx
 aomori_a_type_*.xlsx
 tottori_a_type_*.xlsx
 kumamoto_a_type_*.xlsx
+miyagi_seitai_*.xlsx
 *.log
 .playwright-mcp/
 *.csv
