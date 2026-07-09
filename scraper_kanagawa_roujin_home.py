@@ -14,10 +14,11 @@
 対象外: ショートステイ専用・デイサービス専用・グループホーム・訪問介護事業所
        （いずれも上記3種別の検索では取得されないため自然に除外される）
 
-  Phase 4 - 公式サイトURLがある施設について、サイト本文からインスタURL・
-            問い合わせフォームURLを取得（requests + BeautifulSoup, 10並列）
+  Phase 4 - 公式サイトURLがある施設について、サイト本文からメールアドレス・
+            インスタURL・問い合わせフォームURLを取得
+            （requests + BeautifulSoup, 10並列）
 
-出力列: 施設種別, 名称, 所在地, 電話番号, 公式サイトURL, インスタURL, 問い合わせフォームURL
+出力列: 名称, メールアドレス, 公式サイトURL, 所在地, 電話番号, インスタURL, 問い合わせフォームURL
 出力ファイル: kanagawa_roujin_home_YYYYMMDD_HHMMSS.xlsx
 """
 
@@ -61,8 +62,8 @@ BASE = "https://www.kaigokensaku.mhlw.go.jp/14"
 PAGE_SIZE = 50
 
 OUTPUT_COLS = [
-    "施設種別", "名称", "所在地", "電話番号", "公式サイトURL",
-    "インスタURL", "問い合わせフォームURL",
+    "名称", "メールアドレス", "公式サイトURL",
+    "所在地", "電話番号", "インスタURL", "問い合わせフォームURL",
 ]
 
 
@@ -379,10 +380,32 @@ def _is_allowed(url: str) -> bool:
     return _robots_cache[origin].can_fetch(UA, url)
 
 
+def _decode_cfemail(encoded: str) -> str:
+    try:
+        key = int(encoded[:2], 16)
+        return bytes(
+            int(encoded[i:i + 2], 16) ^ key for i in range(2, len(encoded), 2)
+        ).decode("utf-8")
+    except Exception:
+        return ""
+
+
 def _parse_official_html(url: str, html: str) -> dict:
     result: dict = {}
     soup = BeautifulSoup(html, "lxml")
     base_host = urlparse(url).netloc
+    text = soup.get_text(separator="\n")
+
+    cf_els = soup.find_all(attrs={"data-cfemail": True})
+    if cf_els:
+        decoded = _decode_cfemail(cf_els[0]["data-cfemail"])
+        if decoded:
+            result["メールアドレス"] = decoded
+    if not result.get("メールアドレス"):
+        emails = re.findall(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", text)
+        emails = [e for e in emails if not re.search(r"\.(png|jpg|gif|svg|webp)$", e, re.I)]
+        if emails:
+            result["メールアドレス"] = emails[0]
 
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -469,21 +492,25 @@ async def main() -> None:
     all_records.extend(sakoujuu_records)
 
     for rec in all_records:
+        rec.setdefault("メールアドレス", "")
         rec.setdefault("インスタURL", "")
         rec.setdefault("問い合わせフォームURL", "")
 
     await enrich_official_sites(all_records, sem_count=10)
 
-    df = pd.DataFrame(all_records, columns=OUTPUT_COLS)
-    df.drop_duplicates(subset=["施設種別", "名称", "所在地"], keep="first", inplace=True)
-    df = df.reset_index(drop=True)
+    df_full = pd.DataFrame(all_records)
+    df_full.drop_duplicates(subset=["施設種別", "名称", "所在地"], keep="first", inplace=True)
+    df_full = df_full.reset_index(drop=True)
+
+    df = df_full[OUTPUT_COLS]
     df.to_excel(OUTPUT_FILE, index=False)
 
     elapsed = int((datetime.now() - start_time).total_seconds())
     logger.info("=" * 65)
     logger.info(f"完了: {OUTPUT_FILE} に {len(df)} 件を出力")
-    for t, cnt in df["施設種別"].value_counts().items():
+    for t, cnt in df_full["施設種別"].value_counts().items():
         logger.info(f"  {t}: {cnt} 件")
+    logger.info(f"  メールアドレス取得: {(df['メールアドレス'] != '').sum()} 件")
     logger.info(f"  インスタURL取得: {(df['インスタURL'] != '').sum()} 件")
     logger.info(f"  問い合わせフォームURL取得: {(df['問い合わせフォームURL'] != '').sum()} 件")
     logger.info(f"所要時間: {elapsed // 60}分{elapsed % 60}秒")
