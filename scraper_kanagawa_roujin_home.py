@@ -128,9 +128,7 @@ def fetch_tokuyou(session: requests.Session) -> list[dict]:
 
         for item in data["data"]:
             name = _clean(item.get("JigyosyoName", ""))
-            addr = _clean(item.get("JigyosyoJyusho", ""))
-            zipcode = _clean(item.get("JigyosyoYubinbangou", "")).replace(",", "-")
-            address = f"〒{zipcode} {addr}" if zipcode else addr
+            address = _clean(item.get("JigyosyoJyusho", ""))
             phone = _clean(item.get("JigyosyoTel", ""))
             url = _clean(item.get("JHPUrl", "")) if str(item.get("UrlLinkFlag")) == "1" else ""
 
@@ -162,12 +160,10 @@ def _parse_shisetsu_list(html: str) -> list[dict]:
             continue
 
         addr_td = li.select_one("td.listAddress_shisetsu")
-        zipcode = ""
         address = ""
         if addr_td:
             postal_el = addr_td.select_one("span.postalCode")
             if postal_el:
-                zipcode = _clean(postal_el.get_text()).lstrip("〒")
                 postal_el.decompose()
             for a in addr_td.select("a"):
                 a.decompose()
@@ -183,11 +179,10 @@ def _parse_shisetsu_list(html: str) -> list[dict]:
             if m:
                 url = m.group(1)
 
-        full_address = f"〒{zipcode} {address}" if zipcode else address
         records.append({
             "施設種別": "有料老人ホーム",
             "名称": name,
-            "所在地": full_address,
+            "所在地": address,
             "電話番号": phone,
             "公式サイトURL": url,
         })
