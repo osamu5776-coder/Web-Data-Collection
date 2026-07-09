@@ -14,7 +14,10 @@
 対象外: ショートステイ専用・デイサービス専用・グループホーム・訪問介護事業所
        （いずれも上記3種別の検索では取得されないため自然に除外される）
 
-出力列: 施設種別, 名称, 所在地, 電話番号, 公式サイトURL
+  Phase 4 - 公式サイトURLがある施設について、サイト本文からインスタURL・
+            問い合わせフォームURLを取得（requests + BeautifulSoup, 10並列）
+
+出力列: 施設種別, 名称, 所在地, 電話番号, 公式サイトURL, インスタURL, 問い合わせフォームURL
 出力ファイル: kanagawa_roujin_home_YYYYMMDD_HHMMSS.xlsx
 """
 
@@ -57,7 +60,10 @@ UA = (
 BASE = "https://www.kaigokensaku.mhlw.go.jp/14"
 PAGE_SIZE = 50
 
-OUTPUT_COLS = ["施設種別", "名称", "所在地", "電話番号", "公式サイトURL"]
+OUTPUT_COLS = [
+    "施設種別", "名称", "所在地", "電話番号", "公式サイトURL",
+    "インスタURL", "問い合わせフォームURL",
+]
 
 
 def _new_session() -> requests.Session:
@@ -351,6 +357,96 @@ async def enrich_sakoujuu(records: list[dict], sem_count: int = 8) -> None:
     logger.info("Phase 3B 完了（詳細ページから電話番号取得）")
 
 
+# ── Phase 4: 公式サイトからインスタ・問い合わせフォームURL取得 ──
+
+from urllib.parse import urljoin, urlparse
+from urllib.robotparser import RobotFileParser
+
+_robots_cache: dict[str, RobotFileParser] = {}
+
+
+def _is_allowed(url: str) -> bool:
+    parsed = urlparse(url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    if origin not in _robots_cache:
+        rp = RobotFileParser()
+        try:
+            rp.set_url(f"{origin}/robots.txt")
+            rp.read()
+        except Exception:
+            pass
+        _robots_cache[origin] = rp
+    return _robots_cache[origin].can_fetch(UA, url)
+
+
+def _parse_official_html(url: str, html: str) -> dict:
+    result: dict = {}
+    soup = BeautifulSoup(html, "lxml")
+    base_host = urlparse(url).netloc
+
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if "instagram.com" in href and "/p/" not in href and "/reel/" not in href:
+            if href.startswith("//"):
+                href = "https:" + href
+            result["インスタURL"] = href.rstrip("/")
+            break
+
+    contact_kws = ["contact", "inquiry", "お問い合わせ", "問い合わせ", "ご相談", "メールフォーム"]
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        link_text = a.get_text(strip=True)
+        if not any(kw in href.lower() or kw in link_text for kw in contact_kws):
+            continue
+        if href.startswith("//"):
+            href = "https:" + href
+        elif not href.startswith(("http", "#", "mailto:", "tel:")):
+            href = urljoin(url, href)
+        if href.startswith(("#", "mailto:", "tel:")):
+            continue
+        # 別ドメイン（ホスティングサービス自身の問い合わせ窓口等）は採用しない
+        if urlparse(href).netloc != base_host:
+            continue
+        result["問い合わせフォームURL"] = href
+        break
+
+    return result
+
+
+def _fetch_official_sync(url: str) -> dict:
+    if not url.startswith("http"):
+        return {}
+    if not _is_allowed(url):
+        return {}
+    try:
+        r = requests.get(url, headers={"User-Agent": UA}, timeout=10, allow_redirects=True)
+        if r.status_code >= 400:
+            return {}
+        r.encoding = r.apparent_encoding or "utf-8"
+        return _parse_official_html(r.url, r.text)
+    except Exception:
+        return {}
+
+
+async def enrich_official_sites(records: list[dict], sem_count: int = 10) -> None:
+    semaphore = asyncio.Semaphore(sem_count)
+    with_url = [r for r in records if r.get("公式サイトURL")]
+    total = len(with_url)
+    done = {"n": 0}
+    logger.info(f"Phase 4: 公式サイトからインスタ・問い合わせフォームURL取得 ({total} 件)")
+
+    async def _one(rec: dict) -> None:
+        async with semaphore:
+            extras = await asyncio.to_thread(_fetch_official_sync, rec["公式サイトURL"])
+            rec.update(extras)
+            done["n"] += 1
+            if done["n"] % 50 == 0 or done["n"] == total:
+                logger.info(f"  公式サイト取得: {done['n']}/{total}")
+
+    await asyncio.gather(*[_one(rec) for rec in with_url])
+    logger.info("Phase 4 完了")
+
+
 # ── メイン ────────────────────────────────────────────────
 
 async def main() -> None:
@@ -372,6 +468,12 @@ async def main() -> None:
         rec.pop("_detail_url", None)
     all_records.extend(sakoujuu_records)
 
+    for rec in all_records:
+        rec.setdefault("インスタURL", "")
+        rec.setdefault("問い合わせフォームURL", "")
+
+    await enrich_official_sites(all_records, sem_count=10)
+
     df = pd.DataFrame(all_records, columns=OUTPUT_COLS)
     df.drop_duplicates(subset=["施設種別", "名称", "所在地"], keep="first", inplace=True)
     df = df.reset_index(drop=True)
@@ -382,6 +484,8 @@ async def main() -> None:
     logger.info(f"完了: {OUTPUT_FILE} に {len(df)} 件を出力")
     for t, cnt in df["施設種別"].value_counts().items():
         logger.info(f"  {t}: {cnt} 件")
+    logger.info(f"  インスタURL取得: {(df['インスタURL'] != '').sum()} 件")
+    logger.info(f"  問い合わせフォームURL取得: {(df['問い合わせフォームURL'] != '').sum()} 件")
     logger.info(f"所要時間: {elapsed // 60}分{elapsed % 60}秒")
     logger.info("=" * 65)
 
