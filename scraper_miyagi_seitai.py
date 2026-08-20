@@ -204,6 +204,12 @@ def _fetch_detail_sync(rec: dict) -> None:
         elif key == "TEL":
             phone = re.sub(r"[^0-9\-]", "", val)
             rec["電話番号"] = phone
+        elif key in ("URL", "ホームページ", "公式サイト", "WEB"):
+            link = cells[1].find("a", href=True)
+            if link:
+                href = link["href"].strip()
+                if href.startswith("http") and not any(d in href for d in SKIP_DOMAINS):
+                    rec["公式サイトURL"] = href
     time.sleep(random.uniform(0.1, 0.3))
 
 
@@ -488,19 +494,29 @@ async def main() -> None:
                     hp_added += 1
         logger.info(f"Phase 2 完了: 新規追加 {hp_added} 件 (合計 {len(all_records)} 件)")
 
-        # ── Phase 3: DuckDuckGo 公式サイト検索 ────────────
+        # ── Phase 3: DuckDuckGo 公式サイト検索（3並列） ────
         logger.info("Phase 3: DuckDuckGo で公式サイト検索")
         no_url = [r for r in all_records if not r.get("公式サイトURL")]
-        logger.info(f"  公式URL 未取得: {len(no_url)} 件")
+        logger.info(f"  公式URL 未取得: {len(no_url)} 件 (judo-ch.jpで取得済み: {len(all_records) - len(no_url)} 件)")
 
-        for i, rec in enumerate(no_url, 1):
-            url = search_official_site(rec["名称"], rec.get("所在地", ""))
-            if url:
-                rec["公式サイトURL"] = url
-            if i % 30 == 0 or i == len(no_url):
-                found = sum(1 for r in no_url[:i] if r.get("公式サイトURL"))
-                logger.info(f"  DDG検索: {i}/{len(no_url)} (発見 {found} 件)")
-            time.sleep(random.uniform(1.5, 2.5))
+        ddg_sem = asyncio.Semaphore(3)
+        ddg_done = {"n": 0, "found": 0}
+
+        async def _ddg_one(rec: dict) -> None:
+            async with ddg_sem:
+                url = await asyncio.to_thread(
+                    search_official_site, rec["名称"], rec.get("所在地", "")
+                )
+                if url:
+                    rec["公式サイトURL"] = url
+                    ddg_done["found"] += 1
+                ddg_done["n"] += 1
+                n = ddg_done["n"]
+                if n % 30 == 0 or n == len(no_url):
+                    logger.info(f"  DDG検索: {n}/{len(no_url)} (発見 {ddg_done['found']} 件)")
+                await asyncio.sleep(random.uniform(1.0, 2.0))
+
+        await asyncio.gather(*[_ddg_one(rec) for rec in no_url])
 
         # ── Phase 4: 公式サイト追加情報取得 ────────────────
         logger.info("Phase 4: 公式サイト収集")
