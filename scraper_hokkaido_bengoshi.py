@@ -193,11 +193,9 @@ def _is_portal_page(html: str) -> bool:
 
 def _ensure_hokkaido_prefix(address: str) -> str:
     address = re.sub(r"[\s　]+", " ", address).strip()
+    address = re.sub(r"^〒?\s*\d{3}-?\d{4}\s*", "", address).strip()
     if not address or "北海道" in address:
         return address
-    m = re.match(r"^(〒\s*\d{3}-?\d{4})\s*(.*)$", address)
-    if m:
-        return f"{m.group(1)} 北海道{m.group(2)}"
     return f"北海道{address}"
 
 
