@@ -72,7 +72,14 @@ HIMAWARI_KAI_CODE = "9"
 SKIP_DOMAINS = [
     # データソース自身・弁護士会公式サイト（個別事務所ではない）
     "bengoshikai.jp", "wind.ne.jp", "gunben.or.jp", "nichibenren.or.jp",
-    "houterasu.or.jp", "bengo4.com",
+    "houterasu.or.jp", "bengo4.com", "bengoshi-search.site", "bennavi.jp",
+    "chuokeizai.co.jp",
+    # 離婚・相続・債務整理などの弁護士紹介ディレクトリ（個別事務所ではない）
+    "ricon-pro.com", "souzoku-pro.info", "saimuseiri110.net", "bengoshi.quest",
+    "bengoshikensaku.com", "bkangunma.net", "ai-chosa-maebashi.com",
+    "sashiireya.com", "agoora.co.jp", "souzokubengo-line.com",
+    "rikon.asahi.com", "souzoku.asahi.com", "saimuseiri.asahi.com",
+    "xn--zqs94l3txt9rgzaw2z12g.jp", "xn--u9jy76gb0o9pg1qbg18h15c.jp",
     # ディレクトリ・検索・比較サイト
     "itp.ne.jp", "mapion.co.jp", "navitime.co.jp", "mapfan.com",
     "goo.ne.jp", "wikipedia.org", "google.com", "google.co.jp",
@@ -145,8 +152,17 @@ def _normalize_phone(s: str) -> str:
     return re.sub(r"[^0-9]", "", str(s))
 
 
+SKIP_URL_PATTERNS = [
+    r"\.pdf(\?|$)",       # 個別事務所の公式サイトではなくPDF資料であることが多い
+    r"bengoshi[-_]?search", # 弁護士検索ディレクトリサイト
+    r"bengoshi[-_]?navi",   # 弁護士ナビ系ディレクトリサイト
+]
+
+
 def _is_skip_domain(url: str) -> bool:
-    return any(d in url for d in SKIP_DOMAINS)
+    if any(d in url for d in SKIP_DOMAINS):
+        return True
+    return any(re.search(p, url, re.I) for p in SKIP_URL_PATTERNS)
 
 
 def _verify_match(html_text: str, name: str, phone: str) -> bool:
@@ -625,6 +641,24 @@ async def main() -> None:
     logger.info("Phase 3+4: 未判明の事務所を DuckDuckGo で検索・検証・情報取得")
     await enrich_search_records(deduped, sem_count=3)
     logger.info(f"公式サイト取得 合計: {sum(1 for r in deduped if r.get('公式サイトURL'))} 件")
+
+    # 同一ドメインが異なる複数事務所に一致した場合、個別事務所の公式サイトではなく
+    # 弁護士紹介ディレクトリ等のポータルサイトを誤って採用した可能性が高いため、
+    # 該当ドメインから取得した情報をまとめて除去する（未知のディレクトリサイトに
+    # 対する事後的な安全網。SKIP_DOMAINS の個別列挙だけでは新規サイトを防げないため）。
+    domain_counts: dict[str, int] = {}
+    for r in deduped:
+        if r.get("公式サイトURL"):
+            domain_counts[urlparse(r["公式サイトURL"]).netloc] = (
+                domain_counts.get(urlparse(r["公式サイトURL"]).netloc, 0) + 1
+            )
+    portal_domains = {d for d, c in domain_counts.items() if c > 1}
+    if portal_domains:
+        logger.info(f"  ポータルサイトと判定しURLを除去したドメイン: {sorted(portal_domains)}")
+        for r in deduped:
+            if r.get("公式サイトURL") and urlparse(r["公式サイトURL"]).netloc in portal_domains:
+                for col in ["公式サイトURL", "メールアドレス", "インスタURL", "問い合わせフォームURL"]:
+                    r[col] = ""
 
     df = pd.DataFrame(deduped, columns=OUTPUT_COLS)
     df.drop_duplicates(subset=["名称"], keep="first", inplace=True)
