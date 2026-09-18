@@ -1,0 +1,310 @@
+[
+ {
+  "name": "山田動物病院",
+  "addr": "福井県福井市大町2丁目1112",
+  "phone": "0776-34-1050",
+  "url": "",
+  "source": "homemate+fukuijuu-detail"
+ },
+ {
+  "name": "ハート動物病院",
+  "addr": "福井県福井市花堂南2-1-17",
+  "phone": "0776-35-1711",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "田辺獣医科病院",
+  "addr": "福井県敦賀市木崎43-17-2",
+  "phone": "0770-22-1094",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "松崎動物病院",
+  "addr": "福井県坂井市丸岡町北横地19-3-23",
+  "phone": "0776-67-3320",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "柴田動物病院",
+  "addr": "福井県福井市南四ツ居1-10-4",
+  "phone": "0776-52-1122",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "はるえ動物病院",
+  "addr": "福井県坂井市春江町江留上錦187",
+  "phone": "",
+  "url": "",
+  "source": "homemate"
+ },
+ {
+  "name": "わかさ動物病院",
+  "addr": "福井県小浜市府中16-6-3",
+  "phone": "0770-52-9988",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "文京動物病院",
+  "addr": "福井県福井市文京4-6-9",
+  "phone": "0776-25-1013",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "小春どうぶつクリニック",
+  "addr": "福井県福井市花堂中1-8-39",
+  "phone": "0776-36-3331",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "かわぐち動物病院",
+  "addr": "福井県勝山市北市7-2-8",
+  "phone": "0779-88-4880",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "大門動物病院",
+  "addr": "福井県福井市飯塚町7-29",
+  "phone": "0776-34-1221",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "奥野動物病院",
+  "addr": "福井県敦賀市古田刈67-517",
+  "phone": "0770-20-1122",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "アンマー動物病院",
+  "addr": "福井県福井市舟橋黒竜2-108",
+  "phone": "0776-97-6826",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "山下動物病院",
+  "addr": "福井県福井市二の宮3-16-26",
+  "phone": "0776-26-2937",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "たま動物病院",
+  "addr": "福井県福井市加茂緑苑町601",
+  "phone": "0776-33-3330",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "はしづめ動物病院",
+  "addr": "福井県小浜市遠敷2丁目201-1",
+  "phone": "0770-56-3486",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "いなば動物病院",
+  "addr": "福井県坂井市丸岡町猪爪2-301",
+  "phone": "0776-67-7123",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "ヒロ動物病院",
+  "addr": "福井県越前市国高3-37-4-3",
+  "phone": "0778-22-0101",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "ミドリペットクリニック",
+  "addr": "福井県越前市高瀬1-13-9",
+  "phone": "0778-22-6038",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "山下動物病院敦賀分院",
+  "addr": "福井県敦賀市元町７-１７",
+  "phone": "0770-25-5319",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "さかい動物病院",
+  "addr": "福井県福井市文京1丁目29-13",
+  "phone": "",
+  "url": "",
+  "source": "homemate"
+ },
+ {
+  "name": "森獣医科",
+  "addr": "福井県敦賀市本町1丁目14-3",
+  "phone": "",
+  "url": "",
+  "source": "homemate/trimtrim"
+ },
+ {
+  "name": "高木動物病院",
+  "addr": "福井県坂井市坂井町下関57-9-2",
+  "phone": "0776-72-2811",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "吉田獣医科病院",
+  "addr": "福井県福井市文京1丁目41-16",
+  "phone": "",
+  "url": "",
+  "source": "homemate/trimtrim"
+ },
+ {
+  "name": "さくら通り動物病院",
+  "addr": "福井県福井市花月3-10-9",
+  "phone": "0776-29-7616",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "岡田動物病院",
+  "addr": "福井県大野市明倫町5-18",
+  "phone": "0779-65-8365",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "ごとう動物医院",
+  "addr": "福井県福井市高木町76-8",
+  "phone": "",
+  "url": "",
+  "source": "homemate"
+ },
+ {
+  "name": "とくだ動物病院",
+  "addr": "福井県福井市渕4-2806",
+  "phone": "0776-34-1270",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "たけふ動物医療センター",
+  "addr": "福井県越前市千福町63",
+  "phone": "0778-24-1708",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "新谷獣医科医院",
+  "addr": "福井県あわら市大溝1丁目19-37",
+  "phone": "",
+  "url": "",
+  "source": "homemate"
+ },
+ {
+  "name": "おちたに獣医科病院",
+  "addr": "福井県小浜市多田13-11-18",
+  "phone": "0770-56-1816",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "福井動物クリニック",
+  "addr": "福井県福井市城東4丁目1-1",
+  "phone": "",
+  "url": "",
+  "source": "homemate"
+ },
+ {
+  "name": "あさざわ動物病院",
+  "addr": "福井県鯖江市神明町4-6-29",
+  "phone": "0778-53-1772",
+  "url": "",
+  "source": "homemate/fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "ラーバンの森動物病院",
+  "addr": "福井県坂井市三国町陣ケ岡26-10-27",
+  "phone": "0776-82-1212",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "なかほ犬と猫の病院",
+  "addr": "福井県大野市中保9-12-15",
+  "phone": "0779-64-5501",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "ドッグワールド",
+  "addr": "福井県あわら市牛山3-1",
+  "phone": "",
+  "url": "",
+  "source": "homemate"
+ },
+ {
+  "name": "のろ動物病院",
+  "addr": "福井県鯖江市下野田町40-3-11",
+  "phone": "0778-62-3037",
+  "url": "",
+  "source": "homemate/fukuijuu+fukuijuu-detail"
+ },
+ {
+  "name": "かわもと動物病院",
+  "addr": "福井県越前市新保町19-9-6",
+  "phone": "",
+  "url": "",
+  "source": "homemate/trimtrim"
+ },
+ {
+  "name": "アテナ動物病院福井",
+  "addr": "福井県福井市大和田2丁目1230",
+  "phone": "",
+  "url": "",
+  "source": "homemate"
+ },
+ {
+  "name": "もりた動物病院",
+  "addr": "福井県福井市下森田新町705",
+  "phone": "0776-56-3330",
+  "url": "",
+  "source": "fukuijuu/trimtrim+fukuijuu-detail"
+ },
+ {
+  "name": "福井藤島どうぶつ病院",
+  "addr": "福井県福井市大宮5丁目13-29",
+  "phone": "0776-50-6075",
+  "url": "https://fukui-fuji-ah.com/",
+  "source": "fukuijuu+websearch+fukuijuu-detail"
+ },
+ {
+  "name": "ペテモ動物病院福井",
+  "addr": "福井県福井市大和田町2丁目1230番地 アピタ福井大和田店 1F ペットプラス内",
+  "phone": "0776-57-2242",
+  "url": "https://ah.aeonpet.com/hospitals/fukui/",
+  "source": "fukuijuu+websearch+fukuijuu-detail"
+ },
+ {
+  "name": "東さばえ動物病院",
+  "addr": "福井県鯖江市東鯖江1丁目1-1",
+  "phone": "0778-42-7420",
+  "url": "",
+  "source": "fukuijuu+websearch+fukuijuu-detail"
+ },
+ {
+  "name": "敦賀どうぶつ病院",
+  "addr": "福井県敦賀市松島町29-18-1",
+  "phone": "0770-37-3080",
+  "url": "https://tsuruga-ah.jp/",
+  "source": "fukuijuu+websearch+fukuijuu-detail"
+ }
+]
