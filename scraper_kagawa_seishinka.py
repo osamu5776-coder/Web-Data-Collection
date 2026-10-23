@@ -7,6 +7,8 @@
             その他（精神科系）のいずれかに該当する」病院・診療所を検索し、
             名称・所在地・電話番号・URL・診療科目を収集（県単位の検索結果と件数を照合）。
             都道府県へ届け出られた情報のため、これを掲載可否の正とする。
+  Phase 1c - 医療情報ネットの各施設の詳細ページから「案内用電子メールアドレス」を取得し、
+            公式サイトから拾ったメールアドレスより優先して採用する。
   Phase 1b - 香川県「発達障害医療機関リスト」PDF（県医師会協力のアンケート結果）。
             小児科・小児神経科等のみの施設も含むため、診療科名に精神・心療・メンタル・
             こころを含む施設（診療科名欄が空なら施設名で判定）のみ採用する。
@@ -356,7 +358,37 @@ def _parse_mhlw_item(item) -> dict | None:
     rec["精神系診療科目"] = "、".join(d for d in depts if PSY_DEPT_RE.search(d))
     rec["_kikan"] = re.search(r"kikanCd=(\d+)", name_a.get("href", "")).group(1) \
         if "kikanCd=" in name_a.get("href", "") else ""
+    rec["_detail"] = urljoin(MHLW_BASE, name_a.get("href", "")) if rec["_kikan"] else ""
     return rec
+
+
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
+def fetch_mhlw_email(detail_url: str) -> str:
+    """医療情報ネットの詳細ページ（S2430）から「案内用電子メールアドレス」を取得する。"""
+    text = _fetch_text(detail_url, timeout=30)
+    if not text:
+        return ""
+    page = BeautifulSoup(text, "lxml").get_text("\n", strip=True)
+    m = re.search(r"案内用電子メールアドレス\n(?:案内用電子メールアドレス\n)?([^\n]+)", page)
+    if not m:
+        return ""
+    email = EMAIL_RE.search(_zen_to_han(m.group(1)).replace("＠", "@"))
+    return email.group(0) if email else ""
+
+
+def enrich_mhlw_emails(records: list[dict]) -> None:
+    targets = [r for r in records if r.get("_detail")]
+    found = 0
+    for i, rec in enumerate(targets, 1):
+        email = fetch_mhlw_email(rec["_detail"])
+        time.sleep(MHLW_DELAY)
+        if email:
+            rec["_mhlw_email"] = email
+            found += 1
+        if i % 20 == 0 or i == len(targets):
+            logger.info(f"  医療情報ネット詳細: {i}/{len(targets)} (メールアドレス {found} 件)")
 
 
 def _scrape_mhlw_query(label: str, **kw) -> tuple[list[dict], int | None]:
@@ -856,14 +888,18 @@ async def main() -> None:
     await enrich_search_records(deduped, sem_count=3)
     logger.info(f"公式サイト取得 合計: {sum(1 for r in deduped if r.get('公式サイトURL'))} 件")
 
+    # 都道府県へ届け出られた案内用メールアドレスを、公式サイトから拾ったものより優先する
+    logger.info("Phase 1c: 医療情報ネットの詳細ページから案内用電子メールアドレスを取得")
+    enrich_mhlw_emails(deduped)
+    for rec in deduped:
+        if rec.get("_mhlw_email"):
+            rec["メールアドレス"] = rec["_mhlw_email"]
+    logger.info(f"メールアドレス 合計: {sum(1 for r in deduped if r.get('メールアドレス'))} 件")
+
     df = pd.DataFrame(deduped, columns=OUTPUT_COLS)
+    # 施設の重複は Merger で除去済み。同一法人の別施設が届出メールアドレスや
+    # 問い合わせフォームを共有することがあるため、それらでの重複削除は行わない。
     df.drop_duplicates(subset=["名称", "電話番号"], keep="first", inplace=True)
-    for col in ["問い合わせフォームURL", "メールアドレス"]:
-        mask_empty = df[col] == ""
-        df = pd.concat([
-            df[mask_empty],
-            df[~mask_empty].drop_duplicates(subset=[col], keep="first"),
-        ]).sort_index()
     df = df.reset_index(drop=True)
     df.to_excel(OUTPUT_FILE, index=False)
 
