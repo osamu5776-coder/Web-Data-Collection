@@ -21,8 +21,8 @@
             電話番号一致を必須とする検証を行う。
   Phase 4 - 公式サイトから メール・インスタ・問い合わせフォームURL を取得
 
-出力列: 名称, メールアドレス, 公式サイトURL, 所在地, 電話番号, インスタURL, 問い合わせフォームURL,
-        精神系診療科目
+出力列: 名称, メールアドレス, 公式サイトURL, 所在地, 電話番号, インスタURL, 問い合わせフォームURL
+（精神系診療科目は掲載可否の判定とログ出力にのみ使用し、Excelには出力しない）
 出力ファイル: kagawa_seishinka_YYYYMMDD_HHMMSS.xlsx
 """
 
@@ -145,7 +145,7 @@ SKIP_URL_PATTERNS = [
 
 OUTPUT_COLS = [
     "名称", "メールアドレス", "公式サイトURL",
-    "所在地", "電話番号", "インスタURL", "問い合わせフォームURL", "精神系診療科目",
+    "所在地", "電話番号", "インスタURL", "問い合わせフォームURL",
 ]
 
 # 名寄せ用に名称先頭から取り除く法人格（「医療法人○○会　」等）
@@ -292,6 +292,7 @@ def _is_portal_page(html: str) -> bool:
 
 def _new_record(name: str, address: str, phone: str, url: str = "") -> dict:
     rec = {k: "" for k in OUTPUT_COLS}
+    rec["精神系診療科目"] = ""
     rec["名称"] = re.sub(r"[\s　]+", " ", _zen_to_han(name)).strip()
     rec["所在地"] = address
     rec["電話番号"] = _format_phone(phone)
