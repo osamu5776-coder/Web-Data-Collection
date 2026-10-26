@@ -3,8 +3,9 @@
 
 データソース:
   Phase 1 - 大分県トラック運送業界紹介サイト（truck-info.ota.or.jp）
-            「所在地: 大分市」の会員事業者（WordPress REST API で全件取得。
-            一覧ページのページ送りはフィルタ付きだと常に1ページ目を返すため使わない）
+            県内全市町村（大分市・別府市・中津市・日田市ほか18市町村）の会員事業者
+            （WordPress REST API で全件取得。一覧ページのページ送りは
+            フィルタ付きだと常に1ページ目を返すため使わない）
   Phase 2 - Google マップ「運送会社 大分県」の検索結果（Playwright で一覧を
             最後までスクロールし、各スポットの住所・電話・ウェブサイトを取得）
 
@@ -19,6 +20,10 @@
             あることを確認して採用
   Phase 6 - 公式サイト（トップ＋会社概要・問い合わせページ）からメールアドレス・
             インスタURL・問い合わせフォームURL・電話番号（未取得時）を取得
+  Phase 7 - 運送専業でない会社（霊柩運送・葬儀・警備・ガス/石油・建設/土木・
+            自動車整備/レッカー・産廃/環境・林業・水産等）を除外。社名に運送系の語が
+            ない会社は公式サイトの事業内容で判定し（NON_TRUCKING / TRUCKING_OVERRIDE）、
+            材料がなければ社名の業種語で判定する
 
 出力列: 名称, メールアドレス, 公式サイトURL, 所在地, 電話番号, インスタURL, 問い合わせフォームURL
 出力ファイル: 大分県_運送会社リスト.xlsx
@@ -74,13 +79,94 @@ UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
 OTA_API = "https://truck-info.ota.or.jp/wp-json/wp/v2/organization"
-OTA_LOCATION_OITA_CITY = 2
 GMAPS_URL = (
     "https://www.google.com/maps/search/%E9%81%8B%E9%80%81%E4%BC%9A%E7%A4%BE+%E5%A4%A7%E5%88%86%E7%9C%8C/"
     "@33.5264702,129.8203822,9z?hl=ja"
 )
 NTA_BASE = "https://www.houjin-bangou.nta.go.jp"
 NTA_PREF_OITA = "44"
+
+# ── 運送専業の判定 ────────────────────────────────────────
+# 社名に含まれる運送系の語（「運営」の運・「テクノロジー」のロジは除く）
+_TRUCKING_NAME_RE = re.compile(
+    r"運輸|運送|物流|輸送|急便|急送|急配|急行|通運|陸運|陸送|海陸|ロジ(?!ー)|トランス|TRANSPORT|"
+    r"エクスプレス|EXPRESS|ライン|ライナー|カーゴ|配送|運搬|運(?!営)|便|倉庫|LOGI|貨物|引越"
+)
+# 本業が運送以外であることを示す社名の語（運送系の語がない場合のみ適用。霊柩・葬祭は常に除外）
+_FUNERAL_RE = re.compile(r"霊柩|葬|斎場|会館")
+_OTHER_BIZ_RE = re.compile(
+    r"警備|瓦斯|ガス|石油|建設|建材|土木|工業|重工|重機|重建|建機|設備|機械|クレーン|砕石|生コン|礦業|砿業|"
+    r"水産|フーズ|自動車|電装|レッカー|タクシー|環境|開発|農業協同組合|組$"
+)
+# 公式サイトの事業内容で運送以外が本業と確認した会社（コア名）
+NON_TRUCKING = {
+    "平山産業",          # 廃棄物再生処理・解体
+    "福進",              # 生コン製造・産廃処理
+    "種村産業",          # 土木・舗装工事
+    "三想",              # 建設工事・水回り設備
+    "大分メタルズ",      # 金属スクラップ（小玉商店グループ）
+    "西日本産業",        # 環境事業
+    "エコセンター力南",  # 環境ソリューション
+    "YouTo",             # レッカー・ロードサービス・車検整備
+    "JAべっぷ日出",      # 葬祭事業
+    "別府ポートサービス",  # フェリー代理店
+    "テクノ",            # 自動車関連の設計
+    "ジキシン",          # プレハブ・ユニットハウス設置
+    "篠原興業",          # 土木工事
+    "葵",                # 葬儀
+    "大分サービス",      # 家電工事・空調設備
+    "ビッグウェーブカワサキ",  # 自動車部品・中古トラック販売
+    "今吉機設",          # 重量物機器の解体・据付工事
+    "オー・エム・ケイ",  # 大松建設工業グループ
+    "功徳社中",          # 葬祭（友善社）
+    "秀平",              # 葬儀
+    "センコーロード",    # レッカー・ロードサービス
+    "九州航空",          # 航空事業
+    "風之荘",            # 葬儀
+    "うるま優交社",      # 葬儀
+    "一休",              # 葬祭
+    "三花興業",          # 砕石・産廃
+    "ホンカワ",          # 農業・食品
+    "マルゲン",          # 林業素材生産
+    "こうだ",            # 葬儀（玉川斎場）
+    "フォレスト・キーパー",  # 造林・山林経営
+    "アネット",          # まちづくり・建設資材（ANAI）
+    "明日葉",            # デイサービス
+    "公益社",            # 葬儀
+    "東洋興産",          # 福祉タクシー
+    "和久屋",            # 葬祭
+    "伯伸商事",          # 建設業
+    "雅工業",            # 総合建設業が主
+    "宇留嶋建設工業",    # 土木建設業が主
+    "竜伸建設工業",      # 舗装・土木工事が主
+    "ホープ再油",        # 廃油再生
+    "大分宇部",          # セメント販売（宇部グループ）
+    "大分宇部国東安岐工場",
+    "大分宇部安心院工場",
+    "リサイクルテクノロジー",  # リサイクル業
+    "風の丘葬斎場管理運営グループ",
+    "カーステーションエムアイ",  # 自動車販売・整備
+    "カードック弘成",    # 自動車販売・整備・レッカー
+}
+# 社名に業種語を含むが、公式サイトで運送業が本業と確認した会社（コア名）
+TRUCKING_OVERRIDE = {
+    "阿南建材",          # ダンプ・建設機械運搬の運送業
+    "一吉工業",          # 精密機械輸送
+}
+# 検索で誤って別の会社・無関係のページが公式サイトURLとして入るもの
+WRONG_URLS = ("tsukasa-line.com", "matomame.jp", "livecamera.", "city.usa.oita.jp", "kensetumap.com", "tsukulink.net")
+
+
+def is_trucking(core: str, name: str) -> bool:
+    n = _nfkc(name)
+    if core in TRUCKING_OVERRIDE:
+        return True
+    if core in NON_TRUCKING or _FUNERAL_RE.search(n):
+        return False
+    if _TRUCKING_NAME_RE.search(n):
+        return True
+    return not _OTHER_BIZ_RE.search(_LEGAL_RE.sub("", n).strip())
+
 
 OUTPUT_COLS = [
     "名称", "メールアドレス", "公式サイトURL",
@@ -177,10 +263,10 @@ def is_branch(name: str) -> bool:
     return bool(re.search(r"営業所|支店|支社|(?<!引越)センター|事業所|出張所|荷扱所|(?<![\s商])店(?=$|[\s】)])", s))
 
 
-# ── Phase 1: 大分県トラック協会 会員（大分市） ─────────────────
+# ── Phase 1: 大分県トラック協会 会員（県内全市町村） ─────────────────
 
 def fetch_ota() -> list[dict]:
-    cached = _cache("ota.json")
+    cached = _cache("ota_all.json")
     if cached is not None:
         logger.info(f"Phase 1: キャッシュから {len(cached)} 件")
         return cached
@@ -189,7 +275,7 @@ def fetch_ota() -> list[dict]:
     out = []
     page = 1
     while True:
-        r = s.get(OTA_API, params={"per_page": 100, "page": page, "location": OTA_LOCATION_OITA_CITY}, timeout=30)
+        r = s.get(OTA_API, params={"per_page": 100, "page": page}, timeout=30)
         if r.status_code != 200 or not r.json():
             break
         for x in r.json():
@@ -207,8 +293,8 @@ def fetch_ota() -> list[dict]:
             break
         page += 1
         time.sleep(1)
-    _save_cache("ota.json", out)
-    logger.info(f"Phase 1: 協会 大分市 {len(out)} 件")
+    _save_cache("ota_all.json", out)
+    logger.info(f"Phase 1: 協会 県内全市町村 {len(out)} 件")
     return out
 
 
@@ -682,7 +768,20 @@ async def main() -> None:
         logger.info(f"  除外: {name}（{reason}）")
     logger.info(f"Phase 4: 大分県本社 {len(companies)} 社 / 除外 {len(excluded)} 社")
 
+    trucking = [c for c in companies if is_trucking(c["_core"], c["名称"])]
+    for c in companies:
+        if c not in trucking:
+            logger.info(f"  運送専業でないため除外: {c['名称']}")
+    logger.info(f"Phase 7: 運送専業 {len(trucking)} 社 / 運送専業以外 {len(companies) - len(trucking)} 社を除外")
+    companies = trucking
+    for c in companies:
+        if any(w in c["公式サイトURL"] for w in WRONG_URLS):
+            c["公式サイトURL"] = ""
+
     await enrich_all(companies)
+    for c in companies:
+        if any(w in c["公式サイトURL"] for w in WRONG_URLS):
+            c["公式サイトURL"] = c["問い合わせフォームURL"] = c["メールアドレス"] = c["インスタURL"] = ""
 
     df = pd.DataFrame(companies)
     df = df.sort_values(["所在地", "名称"]).reset_index(drop=True)
