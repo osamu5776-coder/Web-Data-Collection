@@ -24,6 +24,8 @@
 
 出力列: 名称, メールアドレス, 公式サイトURL, 所在地, 電話番号, インスタURL, 問い合わせフォームURL
 出力ファイル: 熊本県_自動車部品製造会社リスト.xlsx
+  シート「自動車部品製造会社一覧」: 全データソースの統合
+  シート「前回リスト分」: NAVITIME・Google マップを加える前の3資料に載っていた会社
 """
 
 import asyncio
@@ -79,6 +81,16 @@ SUPPLIER_PARK = "https://www.joho-fukuoka.or.jp/k-car-supplierpark/search-area/k
 SUPPLIER_PDF_BASE = "https://www.joho-fukuoka.or.jp/k-car-supplierpark/pdf/"
 CLIP_BASE = "https://clip-corporation.com/column/manufacturing-kumamoto/"
 CLIP_PAGES = 60
+NAVITIME_BASE = "https://www.navitime.co.jp/category/0516/43/"
+NAVITIME_TAG = "010168"  # 自動車部品・カー用品製造
+# 未ログインの Google マップは1検索 50〜120 件で打ち切られるため、主要市町村別の検索も加える
+GMAPS_QUERIES = ["自動車部品製造会社 熊本県", "自動車部品メーカー 熊本県", "自動車部品工場 熊本県"] + [
+    f"自動車部品メーカー 熊本県{city}" for city in (
+        "熊本市", "八代市", "荒尾市", "玉名市", "山鹿市", "菊池市", "宇城市", "合志市", "天草市", "人吉市",
+        "宇土市", "菊陽町", "大津町", "南関町", "益城町", "長洲町", "あさぎり町", "錦町",
+    )
+]
+GMAPS_TABS = 4
 
 # ── サプライヤーパーク PDF の補正 ───────────────────────────
 PDF_FIX: dict[str, dict] = {
@@ -140,7 +152,46 @@ NON_MFG = {
     "吉本自動車", "山田電機", "本田商事",  # 修理・電装品販売
     "熊本オートバックス", "熊本三菱自動車販売", "スズキ自販熊本",  # 販売
     "ＪＮＣ開発",            # 樹脂資材（建材・農業資材等）
+    # Google マップ・NAVITIME の製造系カテゴリに載っているが自動車部品以外のメーカー・業者
+    "ヤマハマリン", "日立造船マリンエンジン", "カナデビア", "カナデビアエンジニアリング",  # 船舶・プラント
+    "ISEKI Japan 九州カンパニー", "中九州クボタ",            # 農業機械
+    "三菱電機", "三菱電機 パワーデバイス製作所", "アルバック九州", "末松電子製作所", "日本三和エレクトロニクス", "吉野電子工業",
+    "ヒューグルエレクトロニクス", "ヒラタフィールドエンジニアリング", "荏原製作所",  # 半導体・電子・装置
+    "大王パッケージ", "丸美屋", "プライムデリカ", "九州オルガン針", "熊本マランツ", "くまさんメディクス",
+    "アイディエス", "新日本ステンレス工業", "新日本ステンレス工業 長嶺本社","サンエイ化学", "旭国際テクネイオン", "シンレキ工業",
+    "冨士ダイス", "冨士ダイス 熊本製造所", "富士精工",  # 金型・工具
+    "ブリヂストン 熊本工場",                  # 建設機械・農業機械用ゴムクローラ・ホース
+    "井上鋼材", "ホースサプライ熊本", "ひかり",  # 鋼材販売・ホース修理・整備
+    "テクノクリエイティブ☆益城", "田尻製作所", "一新renovation",  # 事業内容を確認できない
 }
+
+# NAVITIME・Google マップの掲載から除くもの
+# 社名から製造・加工以外が本業とわかる語
+_NON_MFG_NAME_RE = re.compile(
+    r"商会|商事|商店|商産|販売|物流|ロジ|整備|リサイクル|ガレージ|モータース|ショップ|"
+    r"ホールディングス|建設|資材|組$|サービス|トレーディング|カービューティ|ソフトウェア|"
+    r"デザイン$|設計$|テント|石油|建材|タイヤ|(?<!特殊)自動車$|硝子$|バッテリー|ペイント|"
+    r"自動車内張|オートバックス|イエローハット|ジェームス|自販|ホンダカーズ|トヨタ(?:カローラ|ペット|モビリティ)|ネッツ|日産プリンス"
+)
+# 製造拠点ではない営業拠点（工場・事業所は製造拠点として残す）
+_SALES_OFFICE_RE = re.compile(r"営業所|支店|支社|出張所|駐在所|事務所|センター|オフィス|ショールーム|倉庫|配送|物流")
+# Google マップのカテゴリで製造・加工とみなすもの（Google マップにだけ載っている会社に適用）
+_MFG_CATEGORY_RE = re.compile(r"メーカー|製造|加工|金型|工場$|製作所|鋳造|鍛造|めっき|成形|企業のオフィス")
+_NON_MFG_CATEGORY_RE = re.compile(r"整備|修理|用品店|部品商|部品店|専門店|販売|解体|中古|ショップ|ディーラー|自動車工場")
+
+
+def is_listing_manufacturer(r: dict) -> bool:
+    """NAVITIME・Google マップの掲載が自動車部品の製造拠点か（名称・カテゴリで判定）。"""
+    name = _LEGAL_RE.sub("", _nfkc(r["name"])).strip()
+    if _NON_MFG_NAME_RE.search(name) or _SALES_OFFICE_RE.search(name):
+        return False
+    if core_name(r["name"]) in {core_name(x) for x in NON_MFG}:
+        return False
+    if r["src"] == "NAVITIME":
+        return True  # 「自動車部品・カー用品製造」カテゴリの掲載
+    cat = r.get("category", "")
+    return bool(_MFG_CATEGORY_RE.search(cat)) and not _NON_MFG_CATEGORY_RE.search(cat)
+
 
 # 検索で誤って別の会社・無関係のページが公式サイトURLとして入るもの
 WRONG_URLS: tuple[str, ...] = (
@@ -149,7 +200,7 @@ WRONG_URLS: tuple[str, ...] = (
     "joho-fukuoka.or.jp", "jetro.go.jp", "ipros.jp", "metoree.com", "aperza.com",
     "bing.com", "kyoka-db.com", "big-advance.site", "culebee.com", "clip-corporation.com", "pref.kumamoto.jp",
     "irbank.net", "cat-studio.jp", "agritrio.co.jp", "kumamotobank.co.jp", "monomiza.jp",
-    "eigyo-mfg.com", "nagomishoko.jp",
+    "eigyo-mfg.com", "nagomishoko.jp", "openwork.jp", "e-kbda.jp",
 )
 
 
@@ -215,21 +266,31 @@ def _norm_addr(s: str) -> str:
 
 
 _LEGAL_RE = re.compile(r"株式会社|有限会社|合同会社|合資会社|合名会社|\((?:株|有|同|資|名)\)|㈱|㈲")
-_BRANCH_RE = re.compile(r"\s*(?:熊本|九州|八代|荒尾)?(?:工場|事業所|営業所)$|\s*[(（][^)）]*事業[)）]$")
+_BRANCH_PLACES = (
+    "熊本|九州|八代|荒尾|玉名|山鹿|菊池|宇城|合志|天草|人吉|宇土|菊陽|大津|南関|益城|長洲|あさぎり|錦|"
+    "松橋|城南|植木|七城|旭志|泗水|鏡|西原|阿蘇|高森|御船|嘉島|長嶺|大窪|永井|緑川|第[一二三四1-4]"
+)
+_BRANCH_RE = re.compile(
+    rf"\s*(?:{_BRANCH_PLACES})*(?:工場|事業所|営業所)$|\s+\S+(?:工場|事業所)$|\s*[(（][^)）]*事業[)）]$"
+)
 # 資料によって表記が違う同じ会社（コア名 → 統一名）
-_ALIASES = {"白水ディエイチシー": "白水DHC"}
+_ALIASES = {"白水ディエイチシー": "白水DHC", "日立Astemo宇城": "Astemo宇城", "山清工業": "山清工業九州"}
 
 
 def core_name(name: str) -> str:
     """法人格・工場/事業所表記・中黒を除いた社名（全角英数も半角に揃える）。"""
     s = re.sub(r"\s*\((?![株有同資名]\))[^)]*\)\s*$", "", _nfkc(name))  # 「( Kyushu F.tech inc.)」等の英語表記
     s = _BRANCH_RE.sub("", _LEGAL_RE.sub(" ", s).strip())
+    s = re.sub(r"\s*代表$", "", s)  # NAVITIME の「九州柳河精機株式会社 代表」（代表電話の掲載）
+    # Google マップの「本社」「営業課」「技術部・工機課」等の部署単位の掲載
+    s = re.sub(r"(?:\s+(?:本社|\S*[課係部](?:・\S*[課係])?)|(?<=\S)本社)$", "", s)
     s = s.replace(" ", "").replace("・", "")
     return _ALIASES.get(s, s)
 
 
-def _rec(src: str, name: str, addr: str, tel: str = "", web: str = "", biz: str = "") -> dict:
-    return {"src": src, "name": _nfkc(name), "addr": _norm_addr(addr), "tel": _format_phone(tel), "web": web, "biz": biz}
+def _rec(src: str, name: str, addr: str, tel: str = "", web: str = "", biz: str = "", category: str = "") -> dict:
+    return {"src": src, "name": _nfkc(name), "addr": _norm_addr(addr), "tel": _format_phone(tel), "web": web,
+            "biz": biz, "category": category}
 
 
 # ── Phase 1: データソース ─────────────────────────────────
@@ -312,6 +373,131 @@ def fetch_clip() -> list[dict]:
         if _AUTO_RE.search(c["biz"]) and _MFG_RE.search(c["biz"]):
             out.append(_rec("企業クリップ", c["name"], c["addr"], biz=c["biz"]))
     logger.info(f"  うち自動車部品の製造・加工 {len(out)} 社")
+    return out
+
+
+def fetch_navitime() -> list[dict]:
+    """一覧（1ページ15件、2ページ目以降は ?page=N）→ 各スポット詳細ページの住所・電話番号。"""
+    cached = _cache("navitime.json")
+    if cached is not None:
+        logger.info(f"Phase 1: NAVITIME キャッシュから {len(cached)} 件")
+        return cached
+    s = requests.Session()
+    s.headers["User-Agent"] = UA
+
+    def _get_html(url: str) -> str:
+        for i in range(3):
+            try:
+                res = s.get(url, timeout=25)
+                if res.status_code == 200:
+                    res.encoding = "utf-8"
+                    return res.text
+            except requests.RequestException:
+                pass
+            time.sleep(3 * (i + 1))
+        return ""
+
+    spots, seen, page = [], set(), 1
+    while True:
+        url = f"{NAVITIME_BASE}?tags={NAVITIME_TAG}&from=tag" if page == 1 else f"{NAVITIME_BASE}?page={page}&tags={NAVITIME_TAG}"
+        soup = BeautifulSoup(_get_html(url), "lxml")
+        new = 0
+        for li in soup.select("li.spot-section"):
+            a = li.select_one('a[href*="/poi?spot="]')
+            if not a:
+                continue
+            href = urljoin("https://www.navitime.co.jp/", a["href"]).split("&")[0]
+            if href in seen:
+                continue
+            seen.add(href)
+            nm = li.select_one(".spot-name-text") or li.select_one(".spot-name") or a
+            spots.append({"name": nm.get_text(strip=True), "href": href})
+            new += 1
+        if not new:
+            break
+        page += 1
+        time.sleep(random.uniform(0.5, 1.0))
+    logger.info(f"Phase 1: NAVITIME 一覧 {page - 1} ページ {len(spots)} 件の詳細を取得")
+    out = []
+    for sp in spots:
+        time.sleep(random.uniform(0.5, 1.0))
+        soup = BeautifulSoup(_get_html(sp["href"]), "lxml")
+        fields = {}
+        for dt in soup.select("dl.detail-text-frame dt"):
+            dd = dt.find_next_sibling("dd")
+            if dd is not None:
+                fields[dt.get_text(strip=True)] = re.sub(r"\s+", " ", dd.get_text(" ", strip=True))
+        addr = fields.get("住所", "").replace("地図で見る", "").strip()
+        out.append(_rec("NAVITIME", sp["name"], addr, fields.get("電話番号", "")))
+    _save_cache("navitime.json", out)
+    return out
+
+
+async def fetch_gmaps() -> list[dict]:
+    cached = _cache("gmaps.json")
+    if cached is not None:
+        logger.info(f"Phase 1: Google マップ キャッシュから {len(cached)} 件")
+        return cached
+    from playwright.async_api import async_playwright
+
+    links: dict[str, str] = {}
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        ctx = await browser.new_context(locale="ja-JP", user_agent=UA)
+        pg = await ctx.new_page()
+        for q in GMAPS_QUERIES:
+            await pg.goto("https://www.google.com/maps/search/" + q.replace(" ", "+") + "?hl=ja", wait_until="domcontentloaded")
+            await pg.wait_for_timeout(5000)
+            feed = pg.locator('div[role="feed"]')
+            last, same = 0, 0
+            for _ in range(80):
+                await feed.evaluate("e => e.scrollBy(0, 5000)")
+                await pg.wait_for_timeout(1500)
+                if await pg.locator("text=リストの最後に到達しました").count():
+                    break
+                n = await pg.locator("a.hfpxzc").count()
+                same = same + 1 if n == last else 0
+                last = n
+                if same >= 6:
+                    break
+            for label, href in await pg.eval_on_selector_all(
+                "a.hfpxzc", "as => as.map(a => [a.getAttribute('aria-label'), a.href])"
+            ):
+                links.setdefault(href.split("?")[0], label)
+        logger.info(f"Phase 1: Google マップ {len(links)} 件の詳細を取得")
+        # 詳細ページは 4 タブで並列に開く
+        sem = asyncio.Semaphore(GMAPS_TABS)
+
+        async def _detail(href: str, name: str) -> dict:
+            async with sem:
+                tab = await ctx.new_page()
+                rec = _rec("Googleマップ", name, "")
+                try:
+                    await tab.goto(href + "?hl=ja", wait_until="domcontentloaded")
+                    try:
+                        await tab.wait_for_selector("h1", timeout=10000)
+                    except Exception:
+                        pass
+                    await tab.wait_for_timeout(1500)
+                    addr = tab.locator('button[data-item-id="address"]').first
+                    if await addr.count():
+                        rec["addr"] = _norm_addr(await addr.get_attribute("aria-label") or "")
+                    tel = tab.locator('button[data-item-id^="phone:tel:"]').first
+                    if await tel.count():
+                        rec["tel"] = _format_phone(await tel.get_attribute("aria-label") or "")
+                    web = tab.locator('a[data-item-id="authority"]').first
+                    if await web.count():
+                        rec["web"] = await web.get_attribute("href") or ""
+                    cat = tab.locator("button.DkEaL").first
+                    if await cat.count():
+                        rec["category"] = (await cat.inner_text()).strip()
+                finally:
+                    await tab.close()
+                return rec
+
+        out = list(await asyncio.gather(*[_detail(h, n) for h, n in links.items()]))
+        await browser.close()
+    _save_cache("gmaps.json", out)
     return out
 
 
@@ -630,7 +816,7 @@ async def gmaps_lookup(companies: list[dict]) -> None:
 
 # ── メイン ────────────────────────────────────────────────
 
-_SRC_ORDER = {"サプライヤーパーク": 0, "熊本県リスト": 1, "企業クリップ": 2}
+_SRC_ORDER = {"サプライヤーパーク": 0, "熊本県リスト": 1, "企業クリップ": 2, "NAVITIME": 3, "Googleマップ": 4}
 
 
 def _pick(recs: list[dict], key: str) -> str:
@@ -641,11 +827,16 @@ def _pick(recs: list[dict], key: str) -> str:
 
 
 def _display_name(recs: list[dict]) -> str:
-    """工場名つきの名称（県外本社の拠点）があればそれを、なければ企業概要 PDF の名称を使う。"""
-    branch = [r["name"] for r in recs if _BRANCH_RE.search(r["name"])]
-    nm = branch[0] if branch else _pick(recs, "name")
+    """工場名つきの掲載しかない（県外本社の拠点）ときはその名称を、本社の掲載があれば社名を使う。"""
+    ordered = sorted(recs, key=lambda r: _SRC_ORDER.get(r["src"], 9))
+    branch = [r["name"] for r in ordered if _BRANCH_RE.search(_nfkc(r["name"]))]
+    plain = [r["name"] for r in ordered if not _BRANCH_RE.search(_nfkc(r["name"]))]
+    nm = plain[0] if plain and not branch else (branch[0] if branch else ordered[0]["name"])
+    if branch and plain:
+        # 県外本社の工場は企業概要 PDF・県のリストでも工場名つき。熊本本社の会社は社名を使う
+        nm = branch[0] if any(r["src"] in ("サプライヤーパーク", "熊本県リスト") and _BRANCH_RE.search(_nfkc(r["name"])) for r in ordered) else plain[0]
     nm = _nfkc(nm).replace("(株)", "株式会社").replace("(有)", "有限会社")
-    return re.sub(r"\s*[(（][^)）]*事業[)）]$", "", nm)
+    return re.sub(r"\s*[(（][^)）]*事業[)）]$|\s+本社$", "", nm)
 
 
 async def main() -> None:
@@ -655,6 +846,14 @@ async def main() -> None:
     start = datetime.now()
 
     records = fetch_supplier_park() + fetch_pref_list() + fetch_clip()
+    listings = fetch_navitime() + await fetch_gmaps()
+    known = {core_name(r["name"]) for r in records}
+    for r in listings:
+        # 他の資料で自動車部品メーカーと確認できている会社は、営業所等の掲載でも電話番号等の補完に使う
+        if is_listing_manufacturer(r) or (core_name(r["name"]) in known and not _SALES_OFFICE_RE.search(r["name"])):
+            records.append(r)
+        elif r["addr"].startswith("熊本県"):
+            logger.info(f"  自動車部品製造以外のため除外: {r['name']}（{r['src']} {r.get('category', '')}）")
     groups: dict[str, list[dict]] = {}
     for r in records:
         if not r["addr"].startswith("熊本県"):
@@ -665,13 +864,18 @@ async def main() -> None:
 
     companies = []
     for core, recs in groups.items():
+        addr = _pick(recs, "addr")
         companies.append({
             "_core": core,
+            # 前回（サプライヤーパーク・熊本県リスト・企業クリップ）のリストに入っていた会社
+            "_base": any(r["src"] in ("サプライヤーパーク", "熊本県リスト", "企業クリップ") for r in recs),
             "名称": _display_name(recs),
             "メールアドレス": "",
             "公式サイトURL": _pick(recs, "web"),
-            "所在地": _pick(recs, "addr"),
-            "電話番号": _pick(recs, "tel"),
+            "所在地": addr,
+            # 所在地と同じ拠点の電話番号を優先する（本社と工場の番号が混ざらないように）
+            "電話番号": _pick([r for r in recs if r["addr"] == addr], "tel")
+                       or _pick([r for r in recs if _city(r["addr"]) == _city(addr)], "tel") or _pick(recs, "tel"),
             "インスタURL": "",
             "問い合わせフォームURL": "",
         })
@@ -686,9 +890,12 @@ async def main() -> None:
     df = pd.DataFrame(companies)
     df = df.sort_values(["所在地", "名称"]).reset_index(drop=True)
     _save_cache("companies.json", df.to_dict("records"))
+    base = df[df["_base"]][OUTPUT_COLS]
     df = df[OUTPUT_COLS]
     with pd.ExcelWriter(OUTPUT_FILE, engine="openpyxl") as w:
         df.to_excel(w, index=False, sheet_name="自動車部品製造会社一覧")
+        base.to_excel(w, index=False, sheet_name="前回リスト分")
+    logger.info(f"  うち前回リスト分（サプライヤーパーク・熊本県リスト・企業クリップ）: {len(base)} 件")
 
     elapsed = int((datetime.now() - start).total_seconds())
     logger.info("=" * 65)
