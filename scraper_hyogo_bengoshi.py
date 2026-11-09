@@ -440,6 +440,119 @@ def combine_gmaps_shards() -> None:
     logger.info(f"gmaps シャード統合 {len(base)} 件")
 
 
+# ── 補助金ナビ（認定経営革新等支援機関のうち弁護士） ─────────────
+# robots.txt に Crawl-delay: 10 の指定があるため、このサイトだけは並列にせず 10 秒間隔で取得する
+
+HOJO_BASE = "https://hojo-navi.com/shop/prefecture/hyogo/"
+HOJO_DELAY = 10.5
+_hojo_last = {"t": 0.0}
+
+
+def _hojo_get(url: str) -> BeautifulSoup | None:
+    wait = HOJO_DELAY - (time.time() - _hojo_last["t"])
+    if wait > 0:
+        time.sleep(wait)
+    r = _get(url, timeout=30)
+    _hojo_last["t"] = time.time()
+    if r is None or r.status_code >= 400:
+        logger.warning(f"  取得失敗 {url}")
+        return None
+    return BeautifulSoup(r.text, "lxml")
+
+
+def run_hojonavi() -> None:
+    st = _cache("hojo_state.json") or {"lines": {}, "stations": {}, "lawyers": {}, "details": {}}
+
+    def save():
+        _save_cache("hojo_state.json", st)
+
+    # 1) 兵庫県の路線一覧
+    if not st["lines"]:
+        soup = _hojo_get(HOJO_BASE)
+        for a in soup.select('a[href*="/shop/train-line/"]'):
+            href = a["href"].split("/page/")[0].rstrip("/") + "/"
+            st["lines"].setdefault(href, {"name": a.get_text(strip=True), "done": False})
+        save()
+    logger.info(f"補助金ナビ 路線 {len(st['lines'])} 本")
+
+    # 2) 各路線の全ページから兵庫県の駅（掲載件数つき）
+    for href, ln in st["lines"].items():
+        if ln["done"]:
+            continue
+        page, url = 1, href
+        while url:
+            soup = _hojo_get(url)
+            if soup is None:
+                break
+            for a in soup.select('a[href*="/shop/prefecture/hyogo/station/"]'):
+                m = re.search(r"合計[:：]\s*(\d+)", a.get_text(" ", strip=True))
+                cnt = int(m.group(1)) if m else -1
+                st["stations"].setdefault(a["href"], {"name": a.get_text(" ", strip=True).split(" ")[0], "count": cnt, "done": False})
+            page += 1
+            nxt = f"{href}page/{page}/"
+            url = nxt if soup.select_one(f'a[href="{nxt}"]') else None
+        ln["done"] = True
+        save()
+        logger.info(f"  路線 {ln['name']}: 駅累計 {len(st['stations'])}")
+
+    # 3) 掲載のある駅ページから種別「弁護士」の行
+    todo = [h for h, s in st["stations"].items() if not s["done"] and s["count"] != 0]
+    logger.info(f"補助金ナビ 駅 {len(st['stations'])}（掲載あり未取得 {len(todo)}）")
+    for i, href in enumerate(todo, 1):
+        soup = _hojo_get(href)
+        if soup is not None:
+            for tr in soup.select("table.tbl_detail_info tbody tr"):
+                tds = tr.find_all("td")
+                a = tds[0].find("a", href=True) if tds else None
+                if not a or len(tds) < 3 or "弁護士" not in tds[2].get_text():
+                    continue
+                st["lawyers"].setdefault(a["href"], {"label": a.get_text("\n", strip=True), "addr": tds[1].get_text(strip=True)})
+            st["stations"][href]["done"] = True
+        if i % 10 == 0 or i == len(todo):
+            save()
+            logger.info(f"  駅 {i}/{len(todo)}（弁護士 {len(st['lawyers'])} 件）")
+
+    # 4) 弁護士の詳細ページ
+    todo = [h for h in st["lawyers"] if h not in st["details"]]
+    logger.info(f"補助金ナビ 弁護士詳細 {len(todo)} 件")
+    for i, href in enumerate(todo, 1):
+        soup = _hojo_get(href)
+        if soup is None:
+            continue
+        f = {}
+        for th in soup.find_all(["th", "dt"]):
+            td = th.find_next_sibling(["td", "dd"])
+            if td is not None:
+                f.setdefault(th.get_text(strip=True), td.get_text(" ", strip=True))
+        st["details"][href] = f
+        if i % 10 == 0 or i == len(todo):
+            save()
+            logger.info(f"  詳細 {i}/{len(todo)}")
+    save()
+
+    out = []
+    for href, lw in st["lawyers"].items():
+        f = st["details"].get(href, {})
+        parts = lw["label"].split("\n")
+        person = re.sub(r"[\s　]+", "", parts[0])
+        office = parts[1].strip("()（） ") if len(parts) > 1 else ""
+        name = office if office and office != parts[0] else person
+        if not re.search(r"法律|弁護士|事務所|法人", name):
+            name = f"弁護士 {person}"   # 事務所名の記載がない個人登録
+        web = f.get("URL", "").strip()
+        email = f.get("メール", "").strip()
+        out.append({
+            "src": "hojonavi", "name": _nfkc(name), "detail": href,
+            "addr": _norm_addr(f.get("住所") or lw["addr"]),
+            "tel": _format_phone(f.get("電話番号", "")) if f.get("電話番号") else "",
+            "web": web if web.startswith("http") else (f"http://{web}" if re.match(r"[\w.-]+\.\w{2,}", web) else ""),
+            "email": email if "@" in email else "",
+            "branch": f.get("本店・支店", ""), "kind": f.get("認定支援機関種別", ""),
+        })
+    _save_cache("hojonavi.json", out)
+    logger.info(f"補助金ナビ 完了: 弁護士 {len(out)} 件（メール {sum(1 for r in out if r['email'])} / URL {sum(1 for r in out if r['web'])}）")
+
+
 # ── 統合 ─────────────────────────────────────────────────
 
 def _key_name(name: str) -> str:
@@ -471,8 +584,15 @@ def _is_lawyer(rec: dict) -> bool:
     return name_ok
 
 
-def merge_records(b4: list[dict], gm: list[dict]) -> list[dict]:
-    recs = [r for r in b4] + [r for r in gm if _is_lawyer(r)]
+def _key_addr(addr: str) -> str:
+    s = _nfkc(addr).replace("丁目", "-").replace("番地", "-").replace("番", "-").replace("号", "")
+    s = re.sub(r"[\s‐－−ー―]", "-", s)
+    s = re.sub(r"-+", "-", s)
+    return re.sub(r"[\s-]", "", s)
+
+
+def merge_records(b4: list[dict], gm: list[dict], hj: list[dict] | None = None) -> list[dict]:
+    recs = [r for r in b4] + [r for r in gm if _is_lawyer(r)] + list(hj or [])
     recs = [r for r in recs if "兵庫県" in r.get("addr", "") or (r["src"] == "bengo4" and not r.get("addr"))]
     parent = list(range(len(recs)))
 
@@ -499,6 +619,16 @@ def merge_records(b4: list[dict], gm: list[dict]) -> list[dict]:
                 union(i, by_name[k])
             else:
                 by_name[k] = i
+    # 補助金ナビの個人名登録（「弁護士 ○○」）は同じ住所の事務所にまとめる
+    by_addr: dict[str, int] = {}
+    for i, r in enumerate(recs):
+        if r["src"] != "hojonavi" and r.get("addr"):
+            by_addr.setdefault(_key_addr(r["addr"]), i)
+    for i, r in enumerate(recs):
+        if r["src"] == "hojonavi" and r["name"].startswith("弁護士 ") and r.get("addr"):
+            j = by_addr.get(_key_addr(r["addr"]))
+            if j is not None:
+                union(i, j)
     groups: dict[int, list[dict]] = {}
     for i, r in enumerate(recs):
         groups.setdefault(find(i), []).append(r)
@@ -507,14 +637,19 @@ def merge_records(b4: list[dict], gm: list[dict]) -> list[dict]:
     for g in groups.values():
         b = next((r for r in g if r["src"] == "bengo4"), None)
         m = next((r for r in g if r["src"] == "gmaps"), None)
-        name = (b or m)["name"]
+        h = next((r for r in g if r["src"] == "hojonavi"), None)
+        name = (b or m or h)["name"]
         tels = [r.get("tel", "") for r in g if r.get("tel")]
         tel = next((t for t in tels if not _digits(t).startswith("050")), tels[0] if tels else "")
-        addr = (b or {}).get("addr") or (m or {}).get("addr", "")
+        addr = (b or {}).get("addr") or (m or {}).get("addr") or (h or {}).get("addr", "")
         web = next((r.get("web") for r in g if r.get("web") and not any(d in r["web"] for d in SKIP_DOMAINS)), "")
+        # 補助金ナビの登録は改称・移転前のままのことがある（例: はりま中央→レクシード）ため、
+        # メールは事務所名が一致する（または補助金ナビにしか載っていない）場合だけ採用する
+        email = next((r["email"] for r in g if r.get("email")
+                      and (r is (b or m or h) or _key_name(r["name"]) == _key_name(name))), "")
         addr = re.sub(r"^兵庫県\s+", "兵庫県", addr)
         out.append({"名称": _nfkc(name), "所在地": addr, "電話番号": _format_phone(tel) if tel else "",
-                    "公式サイトURL": web, "メールアドレス": "", "インスタURL": "", "問い合わせフォームURL": "",
+                    "公式サイトURL": web, "メールアドレス": email, "インスタURL": "", "問い合わせフォームURL": "",
                     "_src": "+".join(sorted({r["src"] for r in g}))})
     return out
 
@@ -849,7 +984,9 @@ def run_merge() -> None:
         logger.error("bengo4.json / gmaps.json がまだありません。先に bengo4 / gmaps を実行してください。")
         return
     logger.info(f"統合: bengo4 {len(b4)} 件 + gmaps {len(gm)} 件")
-    out = merge_records(b4, gm)
+    hj = _cache("hojonavi.json") or []
+    logger.info(f"補助金ナビ 弁護士 {len(hj)} 件")
+    out = merge_records(b4, gm, hj)
     logger.info(f"統合後 {len(out)} 件")
     async def _both():
         # 公式サイト検索・取得と法人番号による本店確認を同時に進める
@@ -880,6 +1017,8 @@ if __name__ == "__main__":
         asyncio.run(run_gmaps())
     elif MODE == "merge":
         run_merge()
+    elif MODE == "hojonavi":
+        run_hojonavi()
     elif MODE == "gmaps_shard":
         asyncio.run(run_gmaps_shard(int(sys.argv[2]), int(sys.argv[3])))
     elif MODE == "gmaps_combine":
