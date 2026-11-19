@@ -94,7 +94,7 @@ GMAPS_QUERIES = ["広告代理店 群馬県", "広告会社 群馬県"] + [f"広
 NTA_BASE = "https://www.houjin-bangou.nta.go.jp"
 NTA_PREF_GUNMA = "10"
 # 並列数（相手サイトへの負荷を抑えるため 4 まで）
-GMAPS_TABS = 4
+GMAPS_TABS = 2
 NTA_WORKERS = 4
 
 # Google マップにだけ載っている会社で、広告代理店とみなすカテゴリ
@@ -102,7 +102,8 @@ _AD_CATEGORY_RE = re.compile(r"広告|広報|マーケティング|販促|PR|プ
                              r"看板|サイン|印刷|映像|ビデオ制作|イベント|メディア|出版|新聞")
 # 名称から広告代理店でないとわかるもの（Google マップの検索結果に混ざる店舗・公共施設等）
 _NON_AD_NAME_RE = re.compile(r"役所|役場|郵便局|銀行|信用金庫|農協|JA|コンビニ|ローソン|セブン|ファミリーマート|"
-                             r"不動産|ホテル|病院|クリニック|学校|大学|保育|美容|整体|飲食|レストラン|カフェ")
+                             r"不動産|ホテル|病院|クリニック|学校|大学|保育|美容|整体|飲食|レストラン|カフェ|"
+                             r"タウンワーク")  # タウンワークはリクルート（東京本社）の求人誌の拠点
 
 # 検索で誤って別の会社・無関係のページが公式サイトURLとして入るもの
 WRONG_URLS: tuple[str, ...] = (
@@ -402,10 +403,13 @@ def fetch_navitime() -> list[dict]:
 # ── Phase 2: Google マップ ───────────────────────────────
 
 async def fetch_gmaps() -> list[dict]:
-    cached = _cache("gmaps.json")
-    if cached is not None:
-        logger.info(f"Phase 2: キャッシュから {len(cached)} 件")
-        return cached
+    # 検索済みクエリ・取得済みの詳細はキャッシュから再利用し、読み込めなかった詳細だけ再取得する
+    # （長時間の連続取得で Google マップが応答しなくなり、半数以上が未取得になることがあるため）
+    # 環境変数 GMAPS_NO_RETRY=1 のときは再取得せず、取得済みの詳細だけを使う
+    if os.environ.get("GMAPS_NO_RETRY") == "1" and (_cache("gmaps_details.json") is not None):
+        out = [r for r in _cache("gmaps_details.json").values() if not r.get("closed")]
+        logger.info(f"Phase 2: Google マップ 取得済みの詳細 {len(out)} 件を使用（再取得なし）")
+        return out
     from playwright.async_api import async_playwright
 
     links: dict[str, str] = _cache("gmaps_links.json") or {}
